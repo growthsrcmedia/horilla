@@ -7,40 +7,13 @@ services:
       - 8088:8000
     restart: unless-stopped
     environment:
-      DATABASE_URL: "postgres://postgres:postgres@db:5432/horilla"
+      DATABASE_URL: "postgresql://Horilla:Horilla@145.223.22.51:3232/Horilla"
     command: sh ./entrypoint.sh
     volumes:
       - ./horilla:/app/horilla
       - ./media:/app/media
-    depends_on:
-      db:
-        condition: service_healthy
     networks:
       - dokploy-network
-
-  db:
-    image: postgres:16-bullseye
-    environment:
-      POSTGRES_DB: horilla
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
-      PGDATA: /var/lib/postgresql/data/pgdata
-    ports:
-      - 5488:5432
-    restart: unless-stopped
-    volumes:
-      - horilla-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD", "pg_isready", "-U", "postgres"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - dokploy-network
-
-volumes:
-  horilla-data:
 
 networks:
   dokploy-network:
