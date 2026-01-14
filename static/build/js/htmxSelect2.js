@@ -3998,6 +3998,9 @@
     return (u.fn.select2.amd = e), t;
 });
 staticUrl = $("#statiUrl").attr("data-url");
+// Cache/guard to avoid doing expensive work on every HTMX swap
+var cachedInstalledApps = null;
+var installedAppsLoadPromise = null;
 
 function initSelect2(context) {
     $(context).find(".oh-select").each(function () {
@@ -4057,26 +4060,10 @@ $(document).on("htmx:afterSwap", async function (evt) {
     if ($('[role="tooltip"]:visible').length) {
         $('[role="tooltip"]').hide();
     }
-    cachedInstalledApps = await loadFromLocalStorage();
-    // Try loading cached data from localStorage first
-    if (cachedInstalledApps) {
-        // Use the cached data
-        loadScripts(cachedInstalledApps);
-    } else {
-        // Fetch the data via AJAX if not cached or cache is invalid
-        $.ajax({
-            url: '/get-horilla-installed-apps/',
-            method: 'GET',
-            success: async function (response) {
-                cachedInstalledApps = response.installed_apps;
-                await saveToLocalStorage(cachedInstalledApps);
-                loadScripts(cachedInstalledApps);
-            },
-            error: function (error) {
-                console.error("Error fetching installed apps:", error);
-            }
-        });
-    }
+    // Load installed-app scripts only once per page load.
+    // Previously this re-hashed localStorage / re-fetched / re-injected scripts on *every* swap,
+    // which can make the UI feel very slow.
+    ensureInstalledAppScriptsLoaded();
 });
 
 function loadScripts(installedApps) {
@@ -4085,12 +4072,12 @@ function loadScripts(installedApps) {
         const scriptSrc = `${staticUrl}${appName}/actions.js`;
         const existingScript = document.querySelector(`[src='${scriptSrc}']`);
 
-        // Remove existing script if it exists
+        // If already loaded, don't remove/re-add (re-evaluating scripts repeatedly is expensive)
         if (existingScript) {
-            existingScript.remove();
+            return;
         }
 
-        // Add the new script
+        // Add the script once
         const script = document.createElement("script");
         script.src = scriptSrc;
         script.defer = true;
@@ -4111,6 +4098,47 @@ function loadScripts(installedApps) {
     // Always load base script
     loadScriptIfNeeded('base');
 }
+
+function ensureInstalledAppScriptsLoaded() {
+    if (installedAppsLoadPromise) return installedAppsLoadPromise;
+
+    installedAppsLoadPromise = (async function () {
+        try {
+            cachedInstalledApps = await loadFromLocalStorage();
+            if (cachedInstalledApps) {
+                loadScripts(cachedInstalledApps);
+                return cachedInstalledApps;
+            }
+
+            return await new Promise(function (resolve) {
+                $.ajax({
+                    url: '/get-horilla-installed-apps/',
+                    method: 'GET',
+                    success: async function (response) {
+                        cachedInstalledApps = response.installed_apps;
+                        await saveToLocalStorage(cachedInstalledApps);
+                        loadScripts(cachedInstalledApps);
+                        resolve(cachedInstalledApps);
+                    },
+                    error: function (error) {
+                        console.error("Error fetching installed apps:", error);
+                        resolve(null);
+                    }
+                });
+            });
+        } catch (e) {
+            console.error("Error loading installed apps:", e);
+            return null;
+        }
+    })();
+
+    return installedAppsLoadPromise;
+}
+
+// Kick off once on initial page load (so the first HTMX interaction doesn't pay the cost)
+$(document).ready(function () {
+    ensureInstalledAppScriptsLoaded();
+});
 
 
 

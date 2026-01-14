@@ -794,9 +794,20 @@ $(document).on("click", function (event) {
     }
 });
 
-$(document).on("htmx:afterSwap", function () {
-    if ($("[data-summernote]").length > 0) {
-        $("[data-summernote]").summernote({
+$(document).on("htmx:afterSwap", function (evt) {
+    // HTMX swaps happen frequently; re-initializing Summernote globally on each swap
+    // makes every click feel slow. Only initialize editors inside the swapped fragment,
+    // and skip editors that are already initialized.
+    const target = evt && evt.detail && evt.detail.target ? evt.detail.target : document;
+    const $targets = $(target).find("[data-summernote]").addBack("[data-summernote]");
+
+    if ($targets.length === 0) return;
+
+    $targets.each(function () {
+        const $el = $(this);
+        if ($el.data("summernote")) return; // already initialized
+
+        $el.summernote({
             height: 300,
             codeviewFilter: false,
             codeviewIframeFilter: false,
@@ -806,5 +817,5 @@ $(document).on("htmx:afterSwap", function () {
                 },
             },
         });
-    }
+    });
 });
