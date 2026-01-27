@@ -964,8 +964,14 @@ def leave_request_delete(request, id):
     previous_data = request.GET.urlencode()
     try:
         leave_request = LeaveRequest.objects.get(id=id)
-        messages.success(request, _("Leave request deleted successfully.."))
+        if leave_request.status == "approved":
+            messages.error(request, _("Approved leave requests cannot be deleted."))
+            hx_target = request.META.get("HTTP_HX_TARGET", None)
+            if hx_target == "leaveRequest":
+                return redirect(f"/leave/request-filter?{previous_data}")
+            return redirect(leave_request_view)
         leave_request.delete()
+        messages.success(request, _("Leave request deleted successfully.."))
     except (LeaveRequest.DoesNotExist, OverflowError, ValueError):
         messages.error(request, _("Leave request not found."))
     except ProtectedError:
@@ -2462,9 +2468,14 @@ def user_request_delete(request, id):
     previous_data = request.GET.urlencode()
     try:
         leave_request = LeaveRequest.objects.get(id=id)
-        if request.user.employee_get == leave_request.employee_id:
-            messages.success(request, _("Leave request deleted successfully.."))
-            leave_request.delete()
+        if request.user.employee_get != leave_request.employee_id:
+            messages.error(request, _("User has no leave request.."))
+            return redirect(f"/leave/user-request-filter?{previous_data}")
+        if leave_request.status == "approved":
+            messages.error(request, _("Approved leave requests cannot be deleted."))
+            return redirect(f"/leave/user-request-filter?{previous_data}")
+        leave_request.delete()
+        messages.success(request, _("Leave request deleted successfully.."))
     except LeaveRequest.DoesNotExist:
         messages.error(request, _("User has no leave request.."))
     except ProtectedError:
@@ -3785,18 +3796,23 @@ def leave_request_bulk_delete(request):
     ids = request.POST["ids"]
     ids = json.loads(ids)
     count = 0  # To track the number of successfully deleted requests
+    employees_cannot_delete = set()
     for leave_request_id in ids:
         try:
             leave_request = LeaveRequest.objects.get(id=leave_request_id)
             employee = leave_request.employee_id
-            if leave_request.status == "requested":
+            if leave_request.status != "approved":
                 leave_request.delete()
                 count += 1
             else:
-                messages.error(
-                    request,
-                    _("{}'s leave request cannot be deleted.".format(employee)),
-                )
+                if employee.pk not in employees_cannot_delete:
+                    messages.error(
+                        request,
+                        _("{}'s approved leave request(s) cannot be deleted.").format(
+                            employee
+                        ),
+                    )
+                    employees_cannot_delete.add(employee.pk)
         except Exception as e:
             messages.error(request, _("An error occurred: {}.".format(str(e))))
 
@@ -3863,27 +3879,37 @@ def leave_request_select_filter(request):
 @login_required
 def user_request_bulk_delete(request):
     """
-    This method is used to delete bulk of leaves requests
+    This method is used to delete bulk of leave requests from "My Requests".
+    Allows deletion for any status except approved (requested, rejected, cancelled).
     """
     ids = request.POST["ids"]
     ids = json.loads(ids)
+    count = 0
+    approved_blocked = False
     for leave_request_id in ids:
         try:
             leave_request = LeaveRequest.objects.get(id=leave_request_id)
-            status = leave_request.status
-            if leave_request.status == "requested":
+            if leave_request.employee_id != request.user.employee_get:
+                continue
+            if leave_request.status != "approved":
                 leave_request.delete()
-                messages.success(
-                    request,
-                    _("Leave request deleted."),
-                )
+                count += 1
             else:
-                messages.error(
-                    request,
-                    _("You cannot delete leave request with status {}.".format(status)),
-                )
-        except Exception as e:
+                if not approved_blocked:
+                    messages.error(
+                        request,
+                        _("Approved leave request(s) cannot be deleted."),
+                    )
+                    approved_blocked = True
+        except LeaveRequest.DoesNotExist:
             messages.error(request, _("Leave request not found."))
+        except Exception as e:
+            messages.error(request, _("An error occurred: {}.".format(str(e))))
+    if count > 0:
+        messages.success(
+            request,
+            _("{count} leave request(s) successfully deleted.").format(count=count),
+        )
     return JsonResponse({"message": "Success"})
 
 

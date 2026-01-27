@@ -148,13 +148,15 @@
                                         {% endif %}
                                     </div>
                                     <div class="oh-sticky-table__td {% if leave_request.status == 'rejected' %} diff-cell{% endif %}" onclick="event.stopPropagation()">
-                                        {% if leave_request.status == 'requested'%}
+                                        {% if leave_request.status in 'requested,cancelled'%}
                                             <div class="oh-btn-group" >
-                                                <button class="oh-btn oh-btn--light-bkg w-100" title="{% trans 'Edit' %}" data-toggle="oh-modal-toggle"
-                                                    data-target="#objectUpdateModal" hx-get="{% url 'user-request-update' leave_request.id %}?{{pd}}"
-                                                    hx-target="#objectUpdateModalTarget">
-                                                    <ion-icon name="create-outline"></ion-icon>
-                                                </button>
+                                                {% if leave_request.status == 'requested' %}
+                                                    <button class="oh-btn oh-btn--light-bkg w-100" title="{% trans 'Edit' %}" data-toggle="oh-modal-toggle"
+                                                        data-target="#objectUpdateModal" hx-get="{% url 'user-request-update' leave_request.id %}?{{pd}}"
+                                                        hx-target="#objectUpdateModalTarget">
+                                                        <ion-icon name="create-outline"></ion-icon>
+                                                    </button>
+                                                {% endif %}
                                                 <a class="oh-btn oh-btn--danger-outline oh-btn--light-bkg w-100"
                                                     title="{% trans 'Delete' %}" id="delete-link"
                                                     hx-confirm="{% trans 'Are you sure you want to delete this leave request?' %}"

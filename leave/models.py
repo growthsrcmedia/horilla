@@ -1131,7 +1131,8 @@ class LeaveRequest(HorillaModel):
                 return True
 
     def delete(self, *args, **kwargs):
-        if self.status == "requested":
+        # Only block deletion for approved leaves; allow delete for requested, rejected, cancelled, or any other status
+        if self.status != "approved":
             super().delete(*args, **kwargs)
 
             # Update the leave clashes count for all relevant leave requests

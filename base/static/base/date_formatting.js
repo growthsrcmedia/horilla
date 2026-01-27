@@ -95,8 +95,23 @@ class DateFormattingUtility {
             processedDate = date.replace(/(\d{2})\/(\d{2})\/(\d{4})/, '$3-$2-$1');
         }
 
+        // Parse the date with strict mode and specify expected format
+        // This handles dates already in the target format (like "Jan. 23, 2026")
+        let momentDate = moment(processedDate, storedDateFormat, true);
+        
+        // If parsing fails, try with flexible parsing
+        if (!momentDate.isValid()) {
+            momentDate = moment(processedDate);
+        }
+        
+        // If still invalid, return the original date string
+        if (!momentDate.isValid()) {
+            console.warn('Unable to parse date:', date);
+            return date;
+        }
+
         // Format the processed date using moment.js
-        const formattedDate = moment(processedDate).format(storedDateFormat);
+        const formattedDate = momentDate.format(storedDateFormat);
 
         return formattedDate;
     }

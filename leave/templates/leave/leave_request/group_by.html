@@ -153,10 +153,17 @@
                                                   data-target="#objectUpdateModal" hx-get="{% url 'request-update' leave_request.id %}"
                                                   hx-target="#objectUpdateModalTarget"><ion-icon name="create-outline"></ion-icon></button>
                                               {% endif %}
-                                              {% if request.user|is_reportingmanager or perms.attendance.delete_leaverequest %}
-                                              <a class="oh-btn oh-btn--danger-outline oh-btn--light-bkg w-100" id="delete-link"
-                                              hx-confirm="{% trans "Are you sure you want to delete ?" %}" hx-get="{% url 'request-delete' leave_request.id %}?{{pd}}" hx-target="#leaveRequest"  title="{% trans 'Delete' %}"><ion-icon
-                                                  name="trash-outline">group_by</ion-icon></a>
+                                              {% if leave_request.status in 'requested,rejected,cancelled' %}
+                                                {% if request.user|is_reportingmanager or perms.attendance.delete_leaverequest %}
+                                                  <a class="oh-btn oh-btn--danger-outline oh-btn--light-bkg w-100" id="delete-link"
+                                                  hx-confirm="{% trans "Are you sure you want to delete ?" %}" hx-get="{% url 'request-delete' leave_request.id %}?{{pd}}" hx-target="#leaveRequest"  title="{% trans 'Delete' %}"><ion-icon
+                                                      name="trash-outline">group_by</ion-icon></a>
+                                                {% endif %}
+                                              {% else %}
+                                                <button class="oh-btn oh-btn--light-bkg w-100" disabled>
+                                                    <ion-icon name="trash-outline"></ion-icon>
+                                                </button>
+                                              {% endif %}
 
                                           </div>
                                       </div>

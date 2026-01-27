@@ -137,7 +137,7 @@ class EmployeeLeaveRequestUpdateDeleteAPIView(APIView):
         leave_request = self.get_leave_request(request, pk)
         employee_id = request.user.employee_get
         if (
-            leave_request.status == "requested"
+            leave_request.status in ("requested", "cancelled")
             and leave_request.employee_id == employee_id
         ):
             leave_request.delete()
@@ -565,7 +565,7 @@ class LeaveRequestGetUpdateDeleteAPIView(APIView):
     @manager_permission_required("leave.delete_leaverequest")
     def delete(self, request, pk):
         leave_request = self.get_leave_request(pk)
-        if leave_request.status == "requested":
+        if leave_request.status in ("requested", "rejected", "cancelled"):
             leave_request.delete()
             return Response(status=200)
         raise serializers.ValidationError({"error": "Access Denied.."})
