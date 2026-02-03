@@ -28,7 +28,7 @@ from django.contrib.auth.models import User
 from django.core.cache import cache
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import models
-from django.db.models import F, ProtectedError
+from django.db.models import Count, F, ProtectedError
 from django.db.models.query import QuerySet
 from django.forms import DateInput, Select
 from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
@@ -3354,119 +3354,154 @@ def redeem_points(request, emp_id):
 @login_required
 def organisation_chart(request):
     """
-    This method is used to view oganisation chart
+    This method is used to view organization chart - shows complete organization structure
     """
     selected_company = request.session.get("selected_company")
-    if (
-        request.GET.get("employee_work_info__company_id") == None
-        and selected_company != "all"
-    ):
-        reporting_managers = Employee.objects.filter(
-            is_active=True,
-            reporting_manager__isnull=False,
-            employee_work_info__company_id=selected_company,
-        ).distinct()
-    else:
-        reporting_managers = Employee.objects.filter(
-            is_active=True,
-            reporting_manager__isnull=False,
-        ).distinct()
-
-    # Iterate through the queryset and add reporting manager id and name to the dictionary
-    result_dict = {item.id: item.get_full_name() for item in reporting_managers}
-
-    entered_req_managers = []
-
+    
     # Helper function to recursively create the hierarchy structure
-    def create_hierarchy(manager):
+    def create_hierarchy(manager, processed_employees=None):
         """
         Hierarchy generator method
         """
+        if processed_employees is None:
+            processed_employees = set()
+        
+        # Prevent infinite loops
+        if manager.id in processed_employees:
+            return []
+        
+        processed_employees.add(manager.id)
         nodes = []
-        # check the manager is a reporting manager if yes, store it into entered_req_managers
-        if manager.id in result_dict.keys():
-            entered_req_managers.append(manager)
+        
         # filter the subordinates
-        subordinates = Employee.objects.filter(
-            is_active=True, employee_work_info__reporting_manager_id=manager
-        ).exclude(id=manager.id)
+        if selected_company and selected_company != "all":
+            subordinates = Employee.objects.filter(
+                is_active=True, 
+                employee_work_info__reporting_manager_id=manager,
+                employee_work_info__company_id=selected_company,
+            ).exclude(id=manager.id).distinct()
+        else:
+            subordinates = Employee.objects.filter(
+                is_active=True, 
+                employee_work_info__reporting_manager_id=manager
+            ).exclude(id=manager.id).distinct()
 
-        # itrating through subordinates
+        # iterating through subordinates
         for employee in subordinates:
-            if employee in entered_req_managers:
+            if employee.id in processed_employees:
                 continue
-            # check the employee is a reporting manager if yes,remove className store
-            # it into entered_req_managers
-            if employee.id in result_dict.keys():
-                nodes.append(
-                    {
-                        "name": employee.get_full_name(),
-                        "title": getattr(
-                            employee.get_job_position(), "job_position", _("Not set")
-                        ),
-                        "children": create_hierarchy(employee),
-                    }
-                )
-                entered_req_managers.append(employee)
-
-            else:
-                nodes.append(
-                    {
-                        "name": employee.get_full_name(),
-                        "title": getattr(
-                            employee.get_job_position(), "job_position", _("Not set")
-                        ),
-                        "className": "middle-level",
-                        "children": create_hierarchy(employee),
-                    }
-                )
+                
+            nodes.append(
+                {
+                    "name": employee.get_full_name(),
+                    "title": getattr(
+                        employee.get_job_position(), "job_position", _("Not set")
+                    ),
+                    "className": "middle-level",
+                    "children": create_hierarchy(employee, processed_employees),
+                }
+            )
         return nodes
 
-    selected_company = request.session.get("selected_company")
-    if (
-        request.GET.get("employee_work_info__company_id") == None
-        and selected_company != "all"
-    ):
-        reporting_managers = Employee.objects.filter(
+    # Get all top-level employees (those without reporting managers)
+    if selected_company and selected_company != "all":
+        top_level_employees = Employee.objects.filter(
             is_active=True,
-            reporting_manager__isnull=False,
+            employee_work_info__reporting_manager_id__isnull=True,
             employee_work_info__company_id=selected_company,
         ).distinct()
+        # Get all employees who are managers (have subordinates)
+        all_managers = Employee.objects.filter(
+            is_active=True,
+            employee_work_info__company_id=selected_company,
+        ).annotate(
+            subordinate_count=Count('employee_work_info__reporting_manager_id__employee_work_info')
+        ).filter(subordinate_count__gt=0).distinct()
     else:
-        reporting_managers = Employee.objects.filter(
-            is_active=True, reporting_manager__isnull=False
+        top_level_employees = Employee.objects.filter(
+            is_active=True,
+            employee_work_info__reporting_manager_id__isnull=True,
         ).distinct()
+        # Get all employees who are managers (have subordinates)
+        all_managers = Employee.objects.filter(
+            is_active=True,
+        ).annotate(
+            subordinate_count=Count('employee_work_info__reporting_manager_id__employee_work_info')
+        ).filter(subordinate_count__gt=0).distinct()
 
-    manager = request.user.employee_get
+    # Create dropdown dictionary with all managers
+    manager_dict = {}
+    
+    # Add "Complete Organization" as first option
+    manager_dict[0] = _("Complete Organization")
+    
+    # Add all managers to the dropdown
+    for manager in all_managers:
+        manager_dict[manager.id] = manager.get_full_name()
 
-    if len(reporting_managers) == 0:
-        new_dict = {}
-    else:
-        new_dict = {reporting_managers[0].id: _("My view"), **result_dict}
-    # POST method is used to change the reporting manager
+    # Determine which view to show based on POST request
+    selected_manager_id = None
     if request.method == "POST":
         if request.POST.get("manager_id"):
-            manager_id = int(request.POST.get("manager_id"))
-            manager = Employee.objects.get(id=manager_id)
+            selected_manager_id = int(request.POST.get("manager_id"))
+
+    # If a specific manager is selected (not 0 - Complete Organization)
+    if selected_manager_id and selected_manager_id != 0:
+        manager = Employee.objects.get(id=selected_manager_id)
         node = {
             "name": manager.get_full_name(),
             "title": getattr(manager.get_job_position(), "job_position", _("Not set")),
             "children": create_hierarchy(manager),
         }
-        context = {"act_datasource": node}
+        context = {
+            "act_datasource": node,
+            "reporting_manager_dict": manager_dict,
+            "act_manager_id": selected_manager_id,
+        }
         return render(request, "organisation_chart/chart.html", context=context)
-
-    node = {
-        "name": manager.get_full_name(),
-        "title": getattr(manager.get_job_position(), "job_position", _("Not set")),
-        "children": create_hierarchy(manager),
-    }
+    
+    # Default view or "Complete Organization" selected - show all top-level employees
+    processed_employees = set()
+    all_children = []
+    
+    for top_employee in top_level_employees:
+        if top_employee.id not in processed_employees:
+            all_children.append({
+                "name": top_employee.get_full_name(),
+                "title": getattr(
+                    top_employee.get_job_position(), "job_position", _("Not set")
+                ),
+                "children": create_hierarchy(top_employee, processed_employees),
+            })
+    
+    # Create a root node to hold all top-level employees
+    if len(all_children) == 1:
+        # If there's only one top-level employee, use it as root
+        node = all_children[0]
+    elif len(all_children) > 1:
+        # If there are multiple top-level employees, create a virtual root
+        node = {
+            "name": _("Organization"),
+            "title": _("Complete Organization Chart"),
+            "children": all_children,
+        }
+    else:
+        # No employees found
+        node = {
+            "name": _("Organization"),
+            "title": _("No Employees Found"),
+            "children": [],
+        }
 
     context = {
         "act_datasource": node,
-        "reporting_manager_dict": new_dict,
-        "act_manager_id": manager.id,
+        "reporting_manager_dict": manager_dict,
+        "act_manager_id": 0,  # Default to "Complete Organization"
     }
+    
+    if request.method == "POST":
+        return render(request, "organisation_chart/chart.html", context=context)
+    
     return render(request, "organisation_chart/org_chart.html", context=context)
 
 
